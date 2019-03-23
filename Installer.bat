@@ -6,4 +6,4 @@ python -m pip install -U matplotlib
 pip install -U scikit-image
 pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib
 echo "Done!"
-set /p "Press Enter to exit..."
+set /p null="Press Enter to exit..."
