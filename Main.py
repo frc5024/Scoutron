@@ -2,9 +2,9 @@ from __future__ import print_function
 
 print("Starting up program...\n")
 
+from glob import glob
 import matplotlib.pyplot as plt
 from skimage import *
-from skimage import feature #idk why this is buggy
 import pickle
 import os.path
 from googleapiclient.discovery import build
@@ -26,6 +26,7 @@ SPREADSHEET_ID = '1FLMm3aBwR1MjXJPwC50OiIlZYRXPjGwciewMAKkfxY8'
 '            IMAGE    PROCESSING            '
 '''''''''''''''''''''''''''''''''''''''''''''
 
+# Code Snippet from Google themselves, thankyou Google
 def GetSheetsAPI():
     creds = None
     try:
@@ -179,29 +180,30 @@ def IsPointInRects(Point, Rects):
     for Rect in Rects:
         XDelta = Point[0] - Rect[0]
         YDelta = Point[1] - Rect[1]
-        if XDelta < 0 \
-        or YDelta < 0 \
+        if XDelta < 0       \
+        or YDelta < 0       \
         or XDelta > Rect[2] \
-        or YDelta > Rect[3]:
+        or YDelta > Rect[3] :
             continue
         else: return True
     return False
 
 def GetBubbles(XColCoords, YRowCoords, BubbleRects):
-    # Create Bubbles, which is a 2D array, like a grid, of the bubbles, accessed [y][x], not [x][y]
-    # The rows are as long as many collumns there are
-    BubbleRows = [False] * len(XColCoords)
-    # The collumns are as long as many rows there are
-    Bubbles = [BubbleRows] * len(YRowCoords)
-    # Check the bubbles!
-    for x in range(len(XColCoords)):
-        for y in range(len(YRowCoords)):
-            Point = [XColCoords[x], YRowCoords[y]]
-            Bubbles[y][x] = IsPointInRects(Point, BubbleRects)
+    Bubbles = []
+    for Row in YRowCoords:
+        BubbleRow = []
+        for Col in XColCoords:
+            Point = [Col, Row]
+            IsFilled = IsPointInRects(Point, BubbleRects)
+            BubbleRow.append(IsFilled)
+        Bubbles.append(BubbleRow)
+
+    # Log it
     print("Grabbed all bubble values...")
     for BubbleRow in Bubbles:
         print(BubbleRow)
     print()
+    
     return Bubbles
 
 
@@ -259,68 +261,99 @@ def DrawHorizontalLines(plt, Coords, x2):
 def main():
 
     print("Running program...\n")
+
+    # Grap all JPGs in the Images folder
+    Images = glob("Images/*.jpg")
+
+    # Grab all PNGs in the Images folder, just in case
+    Images += glob("Images/*.png")
+
+    print("Found all jpg/png images in Images directory")
+    for Image in Images:
+        print(Image)
+    print()
+
+    # Declare all our window cols/rows
+    fig, axes = plt.subplots(nrows=1, ncols=len(Images))
+    ax = axes.ravel()
     
-    # Read the image file as grayscale
-    RawImage = io.imread("Images/Bubble.jpg", True)
+    BubbleSets = []
 
-    # Make a rect for the entire image, for general awareness
-    ImageWidth, ImageHeight = GrabImageDimensions(RawImage)
+    for i, ImageName in enumerate(Images):
+        
+        # Read the image file as grayscale
+        RawImage = io.imread(ImageName, True)
 
-    # Gaussian blur the image, this greys out the text, circles, and lines
-    BlurImage = filters.gaussian(RawImage, sigma=1.5)
+        # Make a rect for the entire image, for general awareness
+        ImageWidth, ImageHeight = GrabImageDimensions(RawImage)
 
-    # Apply threshold to turn image from greyscale to black|white, this will full rid the text & circles
-    ThreshImage = BlurImage < 0.3
+        # Gaussian blur the image, this greys out the text, circles, and lines
+        BlurImage = filters.gaussian(RawImage, sigma=1.5)
 
-    # Finds contours... Will turn our image into a list of shapes basically
-    Contours = measure.find_contours(ThreshImage, 0.8)
+        # Apply threshold to turn image from greyscale to black|white, this will full rid the text & circles
+        ThreshImage = BlurImage < 0.3
 
-    # Turns all the random shapes(contours) into simple rects
-    Rectangles = ContoursToRects(Contours)
+        # Finds contours... Will turn our image into a list of shapes basically
+        Contours = measure.find_contours(ThreshImage, 0.8)
+
+        # Turns all the random shapes(contours) into simple rects
+        Rectangles = ContoursToRects(Contours)
+        
+        # First rect might be the entire page, if so, pop it
+        if Rectangles[0][2] > ImageWidth / 2 :
+            print("Popped page rect...\n="+str(Rectangles[0])+"\n")
+            Rectangles.pop(0)
+        # To be safe, we won't do any more popping, as we will be saving indexes and stuff
+
+        # Since rects are in top-down order, lets make a line to seperate our allignment rects
+        YLine = Rectangles[0][1] + Rectangles[0][3]
+        print("YLine: %i\n" % YLine)
+
+        # All the rects above our YLine are our allignment rects
+        TopRowRects = GrabTopRowRects(Rectangles, YLine)
+        
+        # We'll need the top-left corner rect for the X-Line
+        CornerRect = GrabCornerRect(Rectangles, YLine, ImageWidth)
+
+        # Same as YLine but x-wise, we use the CornerRect we grabbed to calculate this
+        XLine = CornerRect[0] + CornerRect[2] / 2
+        print("XLine: %i\n" % XLine)
+
+        # All the rects to the left of the XLine are also our allignment rects
+        LeftColRects = GrabLeftColRects(Rectangles, XLine)
+     
+        # Grab all the X&y-axis coordinates to allign with bubbles
+        XColCoords = GrabAllignmentCoordsX(TopRowRects)
+        YRowCoords = GrabAllignmentCoordsY(LeftColRects)
+        
+        # All the rects that are past the X&Y lines are our bubbles
+        BubbleRects = GrabBubbleRectsFromRects(Rectangles, XLine, YLine)
+
+        # Where magic happens. Check each intersection to see if there's a filled bubble there
+        Bubbles = GetBubbles(XColCoords, YRowCoords, BubbleRects)
+
+        # Display our results!
+        DisplayImage       (ax[i], ThreshImage, ImageName)
+        DrawHorizontalLines(ax[i], YRowCoords, ImageWidth)
+        DrawVerticalLines  (ax[i], XColCoords, ImageHeight)
+        DrawRectangles     (ax[i], TopRowRects)
+        DrawRectangles     (ax[i], LeftColRects)
+        DrawXRectangles    (ax[i], BubbleRects)
+
+        # Append it
+        BubbleSets.append(Bubbles)
+
+    # -= End for Image in Images =-
+
     
-    # First rect might be the entire page, if so, pop it
-    if Rectangles[0][2] > ImageWidth / 2 :
-        print("Popped page rect...\n="+str(Rectangles[0])+"\n")
-        Rectangles.pop(0)
-    # To be safe, we won't do any more popping, as we will be saving indexes and stuff
-
-    # Since rects are in top-down order, lets make a line to seperate our allignment rects
-    YLine = Rectangles[0][1] + Rectangles[0][3]
-    print("YLine: %i\n" % YLine)
-
-    # All the rects above our YLine are our allignment rects
-    TopRowRects = GrabTopRowRects(Rectangles, YLine)
-    
-    # We'll need the top-left corner rect for the X-Line
-    CornerRect = GrabCornerRect(Rectangles, YLine, ImageWidth)
-
-    # Same as YLine but x-wise, we use the CornerRect we grabbed to calculate this
-    XLine = CornerRect[0] + CornerRect[2] / 2
-    print("XLine: %i\n" % XLine)
-
-    # All the rects to the left of the XLine are also our allignment rects
-    LeftColRects = GrabLeftColRects(Rectangles, XLine)
- 
-    # Grab all the X&y-axis coordinates to allign with bubbles
-    XColCoords = GrabAllignmentCoordsX(TopRowRects)
-    YRowCoords = GrabAllignmentCoordsY(LeftColRects)
-    
-    # All the rects that are past the X&Y lines are our bubbles
-    BubbleRects = GrabBubbleRectsFromRects(Rectangles, XLine, YLine)
-
-    # Where magic happens. Check each intersection to see if there's a filled bubble there
-    Bubbles = GetBubbles(XColCoords, YRowCoords, BubbleRects)
-
     # !!! Bubbles are accessed [y][x], not [x][y] !!!
 
     ###################################
     # ...Convert Bubbles into Data... #
     ###################################
 
-    Data = [
-        [11, 13, 15, 17],
-        [22, 24, 26, 28],
-        [33, 66, 99, 111]
+    DataSets = [
+        ["Beenis"]
     ]
 
     print("Data collected...")
@@ -345,7 +378,7 @@ def main():
             file.write("\n")
         file.close()
 
-        print("Successfully wrote extracted data to DataOutput.txt!\n")
+        print("Successfully appended extracted data to DataOutput.txt\n")
         
     else:
         
@@ -357,31 +390,15 @@ def main():
         print()
 
         WriteRange(Sheet, "Sheet1!A6:D8", Data)
-    
+        print("Updated the Spreadsheet with Data\n")
     
     '''    IMAGE DISPLAYING    '''
-    
-    # Declare all our cols/rows
-    fig, axes = plt.subplots(nrows=2, ncols=3, sharex=True, sharey=True)
-    ax = axes.ravel()
-
-    DisplayImage       (ax[0], RawImage,    "Original")
-    DisplayImage       (ax[1], BlurImage,   "Gaussian")
-    DisplayImage       (ax[2], ThreshImage, "Threshold")
-    DisplayImage       (ax[3], ThreshImage, "Contours")
-    DrawContours       (ax[3], Contours)
-    DisplayImage       (ax[4], ThreshImage, "Rects")
-    DrawRectangles     (ax[4], Rectangles)
-    DrawHorizontalLines(ax[4], [YLine], ImageWidth)
-    DrawVerticalLines  (ax[4], [XLine], ImageHeight)
-    DisplayImage       (ax[5], ThreshImage, "Allignment Lines")
-    DrawHorizontalLines(ax[5], YRowCoords, ImageWidth)
-    DrawVerticalLines  (ax[5], XColCoords, ImageHeight)
-    DrawXRectangles    (ax[5], BubbleRects)
-
+   
     # Show it!
     plt.tight_layout(0.0)
     plt.show()
+
+    input("Press Enter to Exit...")
 
     return
     
