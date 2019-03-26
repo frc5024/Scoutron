@@ -357,7 +357,7 @@ def main():
     ]
 
     print("Data collected...")
-    for Row in Data:
+    for Row in DataSets:
         print(Row)
     print()
 
@@ -371,7 +371,7 @@ def main():
         
         file = open("DataOutput.txt", 'a')
         
-        for Row in Data:
+        for Row in DataSets:
             file.write(str(Row[0]))
             for i, Val in  enumerate(Row, 1) :
                 file.write("\t"+str(Val))
