@@ -10,6 +10,7 @@ import os.path
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+import math
 
 '''''''''''''''''''''''''''''''''''''''''''''
 '            GLOBAL    VARIABLES            '
@@ -112,8 +113,9 @@ def GrabTopRowRects(Rectangles, YLine):
         Temp = TopRowRects[i]
         TopRowRects[i] = TopRowRects[SmallestRectIndex]
         TopRowRects[SmallestRectIndex] = Temp
-    # Pop the useless corner rect
+    # Pop the useless corner rects
     TopRowRects.pop(0)
+    TopRowRects.pop(-1)
     # Log it
     print("Grabbed all Top Row Rectangles...")
     for Rect in TopRowRects:
@@ -149,6 +151,31 @@ def GrabCornerRect(Rectangles, YLine, ImageWidth):
             print("Rect: "+str(Rect)+"\n")
             return Rect
     return -1
+
+def GrabTopRightRect(Rectangles, YLine, ImageWidth):
+    # The corner rect is square unlike the allignment rects
+    # It's width should be > then half the height
+    Length_2 = Rectangles[0][3] / 2
+    for Rect in Rectangles:
+        if  Rect[2] > Length_2 \
+        and Rect[0] > ImageWidth * 0.7:
+            print("Top Right Rect pulled...")
+            print("Rect: "+str(Rect)+"\n")
+            return Rect
+    return -1
+
+def GetAngleFromTwoRects(R1, R2):
+    X1 = R1[0] + R1[2] / 2
+    Y1 = R1[1] + R1[3] / 2
+    X2 = R2[0] + R2[2] / 2
+    Y2 = R2[1] + R2[3] / 2
+
+    DeltaX = X2 - X1
+    DeltaY = Y2 - Y1
+    
+    AngleRadians = math.atan2(DeltaY, DeltaX)
+
+    return  AngleRadians * 180.0 / math.pi
 
 def GrabAllignmentCoordsX(TopRowRects):
     XColCoords = []
@@ -292,7 +319,7 @@ def main():
 
         # Apply threshold to turn image from greyscale to black|white, this will full rid the text & circles
         ThreshImage = BlurImage < 0.3
-
+        
         # Finds contours... Will turn our image into a list of shapes basically
         Contours = measure.find_contours(ThreshImage, 0.8)
 
@@ -309,10 +336,41 @@ def main():
         YLine = Rectangles[0][1] + Rectangles[0][3]
         print("YLine: %i\n" % YLine)
 
+        # First, we need the two corner rects to check our rotation
+        # We also need the top-left corner rect for the X-Line
+        CornerRect = GrabCornerRect(Rectangles, YLine, ImageWidth)
+        TopRightRect = GrabTopRightRect(Rectangles, YLine, ImageWidth)
+
+        # Get an angle of... if the page is tilted
+        # But we might not have a top-right rect to allign with
+        Angle = 0.0
+        if TopRightRect is not -1 :
+            Angle = GetAngleFromTwoRects(CornerRect, TopRightRect)
+
+        print("Angle tilt of page calculated:", Angle, '\n')
+
+        # Only rotate the image if the angle we're tilted is actualy significant
+        if math.fabs(Angle) > 1.0 :
+
+            print("Rotating the image.\n")
+            
+            # Rotate our image
+            BlurImage = transform.rotate(BlurImage, -Angle, True)
+
+            # Re do everything we did above
+            ThreshImage = BlurImage < 0.3
+            Contours = measure.find_contours(ThreshImage, 0.8)
+            Rectangles = ContoursToRects(Contours)
+            if Rectangles[0][2] > ImageWidth / 2 :
+                print("Popped page rect...\n="+str(Rectangles[0])+"\n")
+                Rectangles.pop(0)
+            YLine = Rectangles[0][1] + Rectangles[0][3]
+            print("YLine: %i\n" % YLine)
+            CornerRect = GrabCornerRect(Rectangles, YLine, ImageWidth)
+
         # All the rects above our YLine are our allignment rects
         TopRowRects = GrabTopRowRects(Rectangles, YLine)
         
-        # We'll need the top-left corner rect for the X-Line
         CornerRect = GrabCornerRect(Rectangles, YLine, ImageWidth)
 
         # Same as YLine but x-wise, we use the CornerRect we grabbed to calculate this
@@ -352,8 +410,9 @@ def main():
     # ...Convert Bubbles into Data... #
     ###################################
 
-    DataSets = [
-        ["Beenis"]
+    Data = [
+        ["Beenis", "lol", "xd"],
+        ["Benis2", "big oof", "rip in chat"]
     ]
 
     print("Data collected...")

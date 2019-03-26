@@ -1,5 +1,5 @@
 {
     "git.ignoreLimitWarning": true,
     "python.linting.pylintEnabled": true,
-    "python.pythonPath": "D:\\Saves\\Scoutron\\Portable Python 3.7.0 x64\\App\\Python\\python.exe"
+    "python.pythonPath": "C:\\Program Files (x86)\\Python37-32\\python.exe"
 }
